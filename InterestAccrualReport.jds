@@ -1,0 +1,277 @@
+function InterestAccrualReport(text)
+{
+ 	// appendFileText(serverPath+"/log/InterestAccrualReport.txt","\n"+text); 
+}
+
+
+function getInterestAccrualQuery(vObj)
+{
+	try
+	{
+		InterestAccrualReport("\n\n vObj refresh : "+JSON.stringify(vObj));
+		var vSQL="";	
+		var FromDate = vObj.paramdata.fdate||'11-11-1999';
+		var ToDate = vObj.paramdata.tdate||'11-11-1999';
+		// var vValues = getTabWhereClause(vObj.paramdata);
+  		// vValues = vValues + getFwkWhereClause(vObj.filter);
+		var vValues = getFwkWhereClause(vObj.filter);
+		var order_by=getTabSortColumn(vObj);	
+		InterestAccrualReport("\n\n vObj vValues : "+vValues);
+		
+		var portcode_entity=getvaluesfromdb("SELECT portcode FROM tbl_portmast WHERE ENTITYCODE IN ("+vObj.paramdata.acc_entityname+")")
+		
+		var vSQL = "SELECT to_char(to_date('"+FromDate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') fromdate,to_char(to_date('"+ToDate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') todate,portcode,PORTNAME, tint.SECURITYSYMBOL,tint.SECURITY_DESC,tint.asset_class_code,acm.asset_class_name, to_char(to_date(PREVIPDATE,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') PREVIPDATE,to_char(to_date(ACCRUALDATE,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') ACCRUALDATE,INTERESTACCRUALPU, (CASE WHEN frn.coupon > 0 THEN frn.coupon ELSE tint.interest end )coupon, FACEVALUE, QUANTITY, (CASE WHEN DAILYINTEREST < 0 THEN INTERESTACCRUAL/ INTERESTDAYS ELSE DAILYINTEREST END ) DAILYINTEREST, INTERESTACCRUAL, INTERESTDAYS  FROM ( SELECT vp.portcode portcode ,vp.portname AS portname ,entryid ,previpdate ,accrualdate ,gs.TYPE ,gs.securitysymbol ,INTEREST ,tINT.facevalue ,QUANTITY ,INTERESTACCRUALPU ,ROUND(CASE   WHEN INTERESTDAYS = 1 THEN INTERESTACCRUAL ELSE CASE INTERESTDAYS WHEN 0 THEN 0 ELSE INTERESTACCRUAL / INTERESTDAYS END  end ,4 )  DAILYINTEREST ,INTERESTACCRUAL ,INTERESTDAYS ,vp.LEVEL1 GROUP1 ,vp.LEVEL2 GROUP2 ,vp.LEVEL3 GROUP3 ,vp.LEVEL4 GROUP4 ,vp.LEVEL5 GROUP5 ,vp.LEVEL6 GROUP6 ,vp.LEVEL7 GROUP7 ,gs.asset_class_code,gs.security_desc FROM IF_temp_interestaccruals tint ,global_security gs ,tbl_portmast vp WHERE tint.portcode = vp.portcode AND tint.securitysymbol = gs.securitysymbol AND tint.ACCRUALTYPE <> 'T' AND Nvl(tint.dealer_ticket_no, 'NA') NOT LIKE 'RP%' AND Nvl(tint.dealer_ticket_no, 'NA') NOT LIKE 'RR%' AND Nvl(tint.dealer_ticket_no, 'NA') NOT LIKE 'BA%' AND nvl(INTERESTACCRUAL, 0) > 0 AND TRUNC(tint.ACCRUALDATE) BETWEEN to_date('"+FromDate+"','"+iwebz.globalDateFormat+"') AND to_date('"+ToDate+"','"+iwebz.globalDateFormat+"') UNION ALL  SELECT vp.portcode portcode ,vp.portname AS portname ,entryid ,t.trans_Date PREVIPDATE ,accrualdate ,'REPO' TYPE ,gs.securitysymbol ,INTEREST ,tINT.facevalue ,QUANTITY ,0 AS INTERESTACCRUALPU ,(CASE WHEN TYPE = 'REPO' THEN (interestaccrual/interestdays)END) DAILYINTEREST ,INTERESTACCRUAL ,INTERESTDAYS ,vp.LEVEL1 GROUP1 ,vp.LEVEL2 GROUP2 ,vp.LEVEL3 GROUP3 ,vp.LEVEL4 GROUP4 ,vp.LEVEL5 GROUP5 ,vp.LEVEL6 GROUP6 ,vp.LEVEL7 GROUP7 ,gs.asset_class_code,gs.security_desc FROM IF_temp_interestaccruals tint ,global_security gs ,tbl_portmast vp ,transact t WHERE tint.portcode = vp.portcode AND tint.securitysymbol = gs.securitysymbol AND tint.ACCRUALTYPE <> 'T' AND tint.dealer_ticket_no = t.dealer_ticket_no AND ( tint.dealer_ticket_no LIKE 'RP%' OR tint.dealer_ticket_no LIKE 'RR%' OR tint.dealer_ticket_no LIKE 'BA%' ) AND nvl(INTERESTACCRUAL, 0) > 0 AND TRUNC(tint.ACCRUALDATE) BETWEEN to_date('"+FromDate+"','"+iwebz.globalDateFormat+"') AND to_date('"+ToDate+"','"+iwebz.globalDateFormat+"') )tint,(SELECT * FROM frninterestaccruals WHERE  TRUNC(ACCINTDATE) BETWEEN to_date('"+FromDate+"','"+iwebz.globalDateFormat+"') AND to_date('"+ToDate+"','"+iwebz.globalDateFormat+"'))  frn ,asset_class_master acm WHERE TRUNC(ACCRUALDATE) BETWEEN to_date('"+FromDate+"','"+iwebz.globalDateFormat+"') AND to_date('"+ToDate+"','"+iwebz.globalDateFormat+"') AND frn.securitysymbol  (+) = tint.securitysymbol AND frn.LIPDATE  (+) <= tint.accrualdate AND frn.NEXTIPDATE(+)  >= tint.accrualdate AND acm.asset_class_code=tint.asset_class_code"
+		
+		InterestAccrualReport("\n\n security : "+vObj.paramdata.securitysymbol);
+		if(nvl(vObj.paramdata.portfolio,0)!=0)	
+		{
+			vSQL+=" and portname = (Select portname from tbl_portmast where portcode ='"+vObj.paramdata.portfolio+"')"
+		}
+		
+		/* if(nvl(vObj.paramdata.securitysymbol,null)!=null)	
+		{
+			vSQL+=" and tint.securitysymbol = '"+vObj.paramdata.securitysymbol+"'"
+		} */
+		
+		vSQL+=" ORDER BY portcode ,portname ,securitysymbol ,accrualdate"
+		
+		vSQL = "select * from ("+vSQL+") where 1=1"
+		
+		if(nvl(GetParameterByName("MULTIENTITY",""),"FALSE")=="TRUE")
+		{
+			
+			if(nvl(vObj.paramdata.acc_entityname,"0")!="0")
+			{
+				vSQL = vSQL + " AND Portcode IN ("+portcode_entity+") " ;
+			}	
+		}
+		
+		if(vObj.paramdata.Portcode!='')
+		{
+			vSQL+=" and Portcode = '"+vObj.paramdata.Portcode+"'";
+		}
+		
+		if(vObj.paramdata.securitysymbol!='')
+		{
+			vSQL+=" and securitysymbol = '"+vObj.paramdata.securitysymbol+"'";
+		}
+		if(vObj.paramdata.asset_class_code!='0')
+		{
+			vSQL+=" and asset_class_code = '"+vObj.paramdata.asset_class_code+"'";
+		}
+		
+		if(vValues!='')
+		{
+			vSQL = vSQL + vValues + order_by
+		}
+		
+		InterestAccrualReport("\n getInterestAccrualQuery Refresh query: \n "+vSQL);
+		appendFileText(serverPath+"/log/InterestAccrualReport.txt","\n"+vSQL); 
+		appendFileText(serverPath+"/log/InterestAccrualReport.txt","\n vObj.isSQL "+vObj.isSQL);		
+		if(vObj.isSQL=="1") return vSQL;
+
+		if(vObj.start!=-1 && vObj.limit!=-1)	
+		 vSQL=getPageWiseQuery(vSQL,parseInt(vObj.start),parseInt(vObj.start)+parseInt(vObj.limit));
+		  
+		vSQL=SQLResultset(vSQL);
+		appendFileText(serverPath+"/log/InterestAccrualReport.txt","\n vSQL.totalcount "+vSQL.totalcount);
+		if(vSQL.recordcount==0) vSQL.totalcount=0;
+		else vSQL.totalcount=parseInt(vSQL.fieldbyname('rc_internal'));
+		return JSON.stringify(vSQL);	
+	}
+	catch(e)
+	{
+		InterestAccrualReport("Error in Refresh function: "+e)
+	}
+}
+
+function getInterestAccrualdataset(vObj,filter)
+{
+	try{
+	var todate=vObj.tdate||getServerDate();
+	var fromdate=vObj.fdate||getServerDate();
+	//var prevDate=DateAdd("D",-1,fromdate,iwebz.globalDateFormat);
+	var paramHtml=vObj
+	var Obj = {}
+	Obj.paramdata=paramHtml;
+	var fwkParams=filter;
+	var tempfilter=[];
+	for(var i = 0 ; i < fwkParams.length; i++)
+	{
+	   tempfilter[i]=fwkParams[i].data;
+	   tempfilter[i].field=fwkParams[i].field
+	}
+	var vObj={};
+	vObj.filter=tempfilter;
+	
+	Obj.isSQL="1";
+	InterestAccrualReport("\n\n  Obj : "+JSON.stringify(Obj));
+	var final_query = getInterestAccrualQuery(Obj)
+	final_query="select * from ("+final_query+") where 1=1"
+	
+	var result = SQLResultset(final_query).recordcount
+	if(result!=0)
+		return final_query;
+	else
+		return "SELECT to_char(to_date('"+fromdate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') fromdate, to_char(to_date('"+todate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') todate, '' PORTNAME, '' SECURITYSYMBOL,to_char(to_date(sysdate,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"')  PREVIPDATE ,to_char(to_date(sysdate,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') ACCRUALDATE,0 INTERESTACCRUALPU,0 coupon, 0 FACEVALUE, 0 QUANTITY,0  DAILYINTEREST, 0 INTERESTACCRUAL, 0 INTERESTDAYS FROM dual"
+	}
+	catch(e)
+	{
+		InterestAccrualReport("\n\n\n error in report : "+e);
+		"SELECT to_char(to_date('"+fromdate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') fromdate, to_char(to_date('"+todate+"','"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') todate, '' PORTNAME, '' SECURITYSYMBOL,to_char(to_date(sysdate,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"')  PREVIPDATE ,to_char(to_date(sysdate,'"+iwebz.globalDateFormat+"'),'"+iwebz.globalReportDateFormat+"') ACCRUALDATE,0 INTERESTACCRUALPU,0 coupon, 0 FACEVALUE, 0 QUANTITY,0  DAILYINTEREST, 0 INTERESTACCRUAL, 0 INTERESTDAYS FROM dual"
+	}
+}
+function OnDeleteInterestAccrualS()
+{
+	try
+	{
+		var griddata=request.getParameter("paramdata");
+			griddata = eval('('+griddata+')');
+		var paramHtml=request.getParameter("paramHtml");
+		var fwkParams=request.getParameter("fwkParams");
+		var proecssid=request.getParameter("processId");
+		var eod_status = GetParameterByName("EODStatus","");
+		var total=0;
+		var Sql=""
+		var eod_date=GetParameterByName("EODSTATUSDATE","");
+		if(eod_date.toUpperCase()=="ERROR" || eod_date=="" || (!isDate(eod_date,iwebz.globalDateFormat)) )
+		{
+			eod_date=formatDate(getServerDate(),iwebz.globalDateFormat);
+		}
+
+		vProcess = "Delete Accruals"+proecssid;
+		startProcess(vProcess);
+		
+		if(griddata.data.length=="0")
+		{
+			Sql=getViewDataInterestacc(paramHtml,fwkParams)
+			Sql="select * from ("+Sql+") where 1=1"
+			InterestAccrualReport("Sql "+Sql)
+			Sql=SQLResultset(Sql);
+
+			total=Sql.recordcount
+		}
+		else
+		{
+			total=griddata.data.length
+		}
+			InterestAccrualReport("total "+total)
+		incrProcessParam(vProcess,'TOTAL',total);
+		for(var i=0;i<total;i++)
+		{
+			var securitysymbol,accrual_date,portcode
+			if(griddata.data.length=="0")
+			{
+				 Sql.recordno=i;
+				 securitysymbol=Sql.fieldbyname('securitysymbol');
+				 accrual_date=Sql.fieldbyname('accrualdate');
+				 portcode=Sql.fieldbyname('portcode');
+			}
+			else
+			{
+				 securitysymbol=griddata.data[i][0];
+				 accrual_date=griddata.data[i][1];
+				 portcode=griddata.data[i][2];		
+			}
+			
+			InterestAccrualReport("securitysymbol "+securitysymbol)
+			InterestAccrualReport("portcode "+portcode)
+			
+			var security_desc = getCode("SELECT security_desc FROM global_security WHERE Upper(securitysymbol)=Upper('"+securitysymbol+"')");
+
+			accrual_date = getCode("SELECT to_char(to_date('"+accrual_date+"', 'dd-Mon-yyyy'), '"+iwebz.globalDateFormat+"') FROM dual")
+			var fundname=getCode("select fund_name from tbl_portmast where portcode='"+portcode+"'")
+			
+			InterestAccrualReport("eod_date "+eod_date)
+			InterestAccrualReport("accrual_date "+accrual_date)
+			var difference=datediff(accrual_date,iwebz.globalDateFormat,formatDate(eod_date,iwebz.globalDateFormat),iwebz.globalDateFormat);
+			InterestAccrualReport("difference "+difference)
+			var mySQL="SELECT Decode(Count(*),0,0,1) FROM "+iwebz.ac_master_table+" WHERE DEALER_TICKET_NO IN (SELECT 'IA - '||EntryID FROM "+iwebz.table_prefix+"temp_interestaccruals WHERE SECURITYSYMBOL = '"+securitysymbol+"' AND PORTCODE = '"+portcode+"' AND trunc(ACCRUALDATE) =to_date('"+accrual_date+"','"+iwebz.globalDateFormat+"') "+")"
+			InterestAccrualReport("mySQL "+mySQL)
+			mySQL=SQLResultset(mySQL);
+		
+
+			if(difference<=0 && eod_status.toUpperCase()=="END")
+			{
+				incrProcessParam(vProcess,'ERRORS',1);
+				logProcessDetail(vProcess,i,"WHT Rate overwriting date should be greater than last EOD Date of "+formatDate(toDate(eod_date,iwebz.globalDateFormat),"MMM dd, yyyy"));
+			}
+			else if (CheckLastNAVDate1(accrual_date,portcode) <=0)
+			{
+				var lastNAVDate = getLastNAVDate_new(accrual_date);
+				incrProcessParam(vProcess,'ERRORS',1);
+				logProcessDetail(vProcess,i,"Accrual deletion date should be greater than last NAV Generation Date of "+ formatDate(toDate(lastNAVDate,iwebz.globalDateFormat),"MMM dd, yyyy") + " for Fund:"+fundname+".");
+			}
+			else if (CheckLastAccDate(accrual_date) <= 0)
+			{
+				var lastAccountingDate = getLastAccDate(accrual_date)
+				incrProcessParam(vProcess,'ERRORS',1);
+				logProcessDetail(vProcess,i,"Accrual deletion date should be greater than last Accounting Entries Generation Date of "+ formatDate(toDate(lastAccountingDate,iwebz.globalDateFormat),"MMM dd, yyyy") + ".");
+			}			
+			else if(mySQL.data[0][0]!=0)
+			{
+				incrProcessParam(vProcess,'ERRORS',1);
+				logProcessDetail(vProcess,1,"Cannot delete accrual as Accounting entry is generated for " + securitysymbol);
+			}
+			else
+			{
+				
+				var vSQL ="";
+				vSQL+=" begin "
+				vSQL+=makeAudit({
+				issql:true
+				,tab:'if_TEMP_INTERESTACCRUALS'
+				,opr:'Delete interest accrual'
+				,res:'delete'
+				,user:userObj.user_id
+				,sqlwhr:" 1=1 and portcode='"+portcode+"' AND  Upper(securitysymbol)=Upper('"+securitysymbol+"') AND Trunc(accrualdate)=To_Date('"+accrual_date+"','"+iwebz.globalDateFormat+"') and Upper(accrualtype)<>'T'"
+				})+";";
+				vSQL+=" DELETE FROM "+iwebz.table_prefix+"temp_interestaccruals temp where 1=1 and portcode='"+portcode+"' AND  Upper(securitysymbol)=Upper('"+securitysymbol+"') AND Trunc(accrualdate)=To_Date('"+accrual_date+"','"+iwebz.globalDateFormat+"') and Upper(accrualtype)<>'T';"	
+				vSQL+=" end; "
+				InterestAccrualReport("vSQL "+vSQL)
+				vSQL=execSQLResultset(vSQL);						
+				if(vSQL.status == "unsuccess")
+				{
+					incrProcessParam(vProcess,'ERRORS',1);
+					logProcessDetail(vProcess,i,vSQL.error);
+				
+				}
+				else
+				{	
+					incrProcessParam(vProcess,'SUCCESS',1);
+					logProcessDetail(vProcess,i,"Accruals deleted successfully for Security "+security_desc+".");
+				
+				}
+			}
+		}
+
+
+		endProcess(vProcess);
+		return '{"status":"success","error":"","msg":"Accruals deleted successfully."}'; 	
+	}
+	catch (e)
+	{
+		InterestAccrualReport("Error "+e)
+		return '{"status":"unsuccess","error":"","msg":""}';
+	}
+}
+function getViewDataInterestacc(paramHtml_filters,fwkParams_filter)
+{
+	var vObj={};
+	var paramHtml=paramHtml_filters; 
+	paramHtml=eval('('+paramHtml+')');
+	vObj.paramdata=paramHtml;
+
+	var fwkParams=fwkParams_filter;
+	fwkParams=eval('('+fwkParams+')');
+	var tempfilter=[ ];
+	for(var i = 0 ; i < fwkParams.length; i++)
+	{
+	   tempfilter[i]=fwkParams[i].data;
+	   tempfilter[i].field=fwkParams[i].field
+	}
+	vObj.filter=tempfilter;
+	vObj.isSQL="1";
+	vSQL = getInterestAccrualQuery(vObj)
+	return vSQL;
+}
